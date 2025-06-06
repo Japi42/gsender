@@ -54,12 +54,7 @@ import {
 } from './definitions';
 import useShuttleEvents from 'app/hooks/useShuttleEvents';
 import useKeybinding from 'app/lib/useKeybinding';
-
-type CustomValue = {
-    value: string;
-    label: string;
-    isCustom: boolean;
-};
+import store from 'app/store';
 
 interface Props {
     actions: Actions;
@@ -79,7 +74,7 @@ const convertAvailableTools = (tools: AvailableTool[], units: UNITS_EN) => {
                 units === METRIC_UNITS ? 'metricDiameter' : 'imperialDiameter'
             ],
         ),
-        isCustom: false,
+        isCustom: tool.isCustom,
     }));
 };
 
@@ -87,7 +82,6 @@ const ProbeDiameter = ({ actions, state, probeCommand }: Props) => {
     const { touchplate, toolDiameter } = state;
     const { touchplateType } = touchplate;
     let { availableTools, units } = state;
-    //console.log(availableTools);
 
     // Add refs to track current state
     const valueRef = useRef<string>(
@@ -95,7 +89,7 @@ const ProbeDiameter = ({ actions, state, probeCommand }: Props) => {
             ? PROBE_TYPE_AUTO
             : String(toolDiameter),
     );
-    const customValuesRef = useRef<CustomValue[]>([]);
+    console.log(toolDiameter);
     const unitsRef = useRef<UNITS_EN>(units);
     const availableToolsRef = useRef<AvailableTool[]>(availableTools);
     const actionsRef = useRef(actions);
@@ -107,17 +101,8 @@ const ProbeDiameter = ({ actions, state, probeCommand }: Props) => {
             ? PROBE_TYPE_AUTO
             : String(toolDiameter),
     );
-    const [customValues, setCustomValues] = useState<CustomValue[]>(() => {
-        const saved = localStorage.getItem('probeCustomValues');
-        const loadedValues = saved ? JSON.parse(saved) : [];
-        return loadedValues;
-    });
-
-    // Initialize the customValuesRef with initial values
-    useEffect(() => {
-        // Set initial custom values to the ref
-        customValuesRef.current = customValues;
-    }, []);
+    const [existingTools, setExistingTools] =
+        useState<AvailableTool[]>(availableTools);
 
     // Update refs when state changes
     useEffect(() => {
@@ -125,16 +110,13 @@ const ProbeDiameter = ({ actions, state, probeCommand }: Props) => {
     }, [value]);
 
     useEffect(() => {
-        customValuesRef.current = customValues;
-    }, [customValues]);
+        availableToolsRef.current = existingTools;
+        store.replace('workspace.tools', existingTools);
+    }, [existingTools]);
 
     useEffect(() => {
         unitsRef.current = units;
     }, [units]);
-
-    useEffect(() => {
-        availableToolsRef.current = availableTools;
-    }, [availableTools]);
 
     useEffect(() => {
         actionsRef.current = actions;
@@ -148,14 +130,6 @@ const ProbeDiameter = ({ actions, state, probeCommand }: Props) => {
                 : String(toolDiameter),
         );
     }, [touchplateType]);
-
-    useEffect(() => {
-        localStorage.setItem('probeCustomValues', JSON.stringify(customValues));
-    }, [customValues]);
-
-    const tools = [...availableTools].sort(
-        (a, b) => a.metricDiameter - b.metricDiameter,
-    );
 
     // Create stable callback that doesn't change on each render
     const handleChange = useCallback((value: string): void => {
@@ -185,31 +159,28 @@ const ProbeDiameter = ({ actions, state, probeCommand }: Props) => {
             const existingToolValues = availableToolsRef.current.map((tool) =>
                 String(tool[toolUnits]),
             );
-            const existingCustomValues = customValuesRef.current.map(
-                (cv) => cv.value,
-            );
 
             if (
-                existingToolValues.includes(formattedValue) ||
-                existingCustomValues.includes(formattedValue)
+                existingToolValues.includes(formattedValue) //||
+                // existingCustomValues.includes(formattedValue)
             ) {
                 handleChange(formattedValue);
                 return;
             }
 
-            const newCustomValue: CustomValue = {
-                value: formattedValue,
-                label: formattedValue,
+            const newTool: AvailableTool = {
+                metricDiameter: Number(formattedValue),
+                imperialDiameter: Number(formattedValue),
+                type: '',
                 isCustom: true,
             };
 
-            const updatedCustomValues = [
-                ...customValuesRef.current,
-                newCustomValue,
-            ];
+            console.log("hi, we're adding to the list");
 
-            setCustomValues(updatedCustomValues);
-            customValuesRef.current = updatedCustomValues;
+            const updatedValues = [...availableToolsRef.current, newTool];
+
+            setExistingTools(updatedValues);
+            availableToolsRef.current = updatedValues;
 
             handleChange(formattedValue);
         },
@@ -218,15 +189,20 @@ const ProbeDiameter = ({ actions, state, probeCommand }: Props) => {
 
     const handleDeleteOption = useCallback(
         (valueToDelete: string) => {
-            const updatedCustomValues = customValuesRef.current.filter(
-                (v) => v.value !== valueToDelete,
+            const toolUnits =
+                unitsRef.current === METRIC_UNITS
+                    ? 'metricDiameter'
+                    : 'imperialDiameter';
+
+            const updatedValues = availableToolsRef.current.filter(
+                (tool) => String(tool[toolUnits]) !== valueToDelete,
             );
 
-            setCustomValues(updatedCustomValues);
-            customValuesRef.current = updatedCustomValues;
+            setExistingTools(updatedValues);
+            availableToolsRef.current = updatedValues;
 
             if (valueRef.current === valueToDelete) {
-                const firstTool = availableToolsRef.current[0];
+                const firstTool = updatedValues[0];
                 if (firstTool) {
                     const toolUnits =
                         unitsRef.current === METRIC_UNITS
@@ -245,7 +221,6 @@ const ProbeDiameter = ({ actions, state, probeCommand }: Props) => {
         const currentValue = valueRef.current;
         const currentUnits = unitsRef.current;
         const currentTools = availableToolsRef.current;
-        const currentCustomValues = customValuesRef.current;
 
         if (
             currentValue === PROBE_TYPE_AUTO ||
@@ -259,15 +234,7 @@ const ProbeDiameter = ({ actions, state, probeCommand }: Props) => {
                 ? 'metricDiameter'
                 : 'imperialDiameter';
 
-        const standardOptions = currentTools.map((tool) =>
-            String(tool[toolUnits]),
-        );
-        const allOptions = [
-            ...new Set([
-                ...standardOptions,
-                ...currentCustomValues.map((cv) => cv.value),
-            ]),
-        ];
+        const allOptions = currentTools.map((tool) => String(tool[toolUnits]));
 
         allOptions.sort((a, b) => Number(a) - Number(b));
 
@@ -289,7 +256,6 @@ const ProbeDiameter = ({ actions, state, probeCommand }: Props) => {
         const currentValue = valueRef.current;
         const currentUnits = unitsRef.current;
         const currentTools = availableToolsRef.current;
-        const currentCustomValues = customValuesRef.current;
 
         if (
             currentValue === PROBE_TYPE_AUTO ||
@@ -303,15 +269,7 @@ const ProbeDiameter = ({ actions, state, probeCommand }: Props) => {
                 ? 'metricDiameter'
                 : 'imperialDiameter';
 
-        const standardOptions = currentTools.map((tool) =>
-            String(tool[toolUnits]),
-        );
-        const allOptions = [
-            ...new Set([
-                ...standardOptions,
-                ...currentCustomValues.map((cv) => cv.value),
-            ]),
-        ];
+        const allOptions = currentTools.map((tool) => String(tool[toolUnits]));
 
         allOptions.sort((a, b) => Number(a) - Number(b));
 
@@ -355,7 +313,7 @@ const ProbeDiameter = ({ actions, state, probeCommand }: Props) => {
 
     const options = [];
 
-    const toolsObjects = convertAvailableTools(tools, units);
+    const toolsObjects = convertAvailableTools(existingTools, units);
 
     if (touchplateType === TOUCHPLATE_TYPE_AUTOZERO) {
         options.push(
@@ -371,7 +329,7 @@ const ProbeDiameter = ({ actions, state, probeCommand }: Props) => {
         return units;
     }
 
-    options.push(...toolsObjects, ...customValues);
+    options.push(...toolsObjects);
     options.sort((a, b) => {
         const isNumR = /^\d+.?\d*$/;
         const isANum = isNumR.test(a.value);
@@ -407,8 +365,7 @@ const ProbeDiameter = ({ actions, state, probeCommand }: Props) => {
                                     <SelectItem
                                         value={option.value}
                                         className={cx(
-                                            option.isCustom &&
-                                                'flex items-center justify-between pr-8',
+                                            'flex items-center justify-between pr-8',
                                         )}
                                     >
                                         <div className="flex items-center justify-between w-full">

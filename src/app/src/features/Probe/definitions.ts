@@ -121,6 +121,7 @@ export interface AvailableTool {
     metricDiameter: number;
     imperialDiameter: number;
     type: string;
+    isCustom: boolean;
 }
 
 export interface State {
